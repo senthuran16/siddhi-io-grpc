@@ -37,6 +37,7 @@ import io.siddhi.extension.io.grpc.util.GrpcConstants;
 import io.siddhi.extension.io.grpc.util.GrpcServerConfigs;
 import io.siddhi.extension.io.grpc.util.SourceServerInterceptor;
 import io.siddhi.query.api.exception.SiddhiAppValidationException;
+import java.util.concurrent.RejectedExecutionException;
 import org.apache.log4j.Logger;
 
 import java.io.FileInputStream;
@@ -173,6 +174,13 @@ public class GenericServiceServer extends ServiceServer {
                                     logger.error(siddhiAppName + ": " + streamID + ": Dropping request. " +
                                             e.getMessage());
                                     responseObserver.onError(new io.grpc.StatusRuntimeException(Status.DATA_LOSS));
+                                } catch (RejectedExecutionException e) {
+                                    logger.error("RejectedExecutionException exception has occurred, The " +
+                                            "exception was handled as a temporary fix to prevent the thread death of" +
+                                            " the thread with the naming convention, 'grpc-default-executor-x'. The " +
+                                            "actual thread is," + Thread.currentThread().getName() + ". The " +
+                                            "exception will cause an even loss, the dropped event is: " +
+                                            value.toString().replaceAll("\n", " | "), e);
                                 }
                             }
 
