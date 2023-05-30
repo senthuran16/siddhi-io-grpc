@@ -37,7 +37,7 @@ import io.siddhi.extension.io.grpc.util.GrpcConstants;
 import io.siddhi.extension.io.grpc.util.GrpcServerConfigs;
 import io.siddhi.extension.io.grpc.util.SourceServerInterceptor;
 import io.siddhi.query.api.exception.SiddhiAppValidationException;
-import java.util.concurrent.RejectedExecutionException;
+
 import org.apache.log4j.Logger;
 
 import java.io.FileInputStream;
@@ -55,6 +55,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -85,9 +86,24 @@ public class GenericServiceServer extends ServiceServer {
         this.requestClass = requestClass;
         super.lock = new ReentrantLock();
         super.condition = lock.newCondition();
-        this.executorService = new ThreadPoolExecutor(grpcServerConfigs.getThreadPoolSize(),
+        ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(grpcServerConfigs.getThreadPoolSize(),
                 grpcServerConfigs.getThreadPoolSize(), 0L, TimeUnit.MILLISECONDS,
                 new LinkedBlockingQueue<>(grpcServerConfigs.getThreadPoolBufferSize()));
+
+        threadPoolExecutor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
+            @Override
+            public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+                logger.info(">>>>>>>>> [30_MAY_PREQA] Handling rejectedExecution. ExecutorService queue size is: " +
+                        ((ThreadPoolExecutor) executorService).getQueue().size());
+                try {
+                    executor.getQueue().put(r);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        this.executorService = threadPoolExecutor;
+
         setServerPropertiesToBuilder(siddhiAppName, streamID);
         addServicesAndBuildServer(siddhiAppName, streamID);
     }
@@ -155,6 +171,9 @@ public class GenericServiceServer extends ServiceServer {
                         return new StreamObserver<Any>() {
                             @Override
                             public void onNext(Any value) {
+                                logger.info(">>>>>>>>> [30_MAY_PREQA] onNext(). ExecutorService queue size is: " +
+                                        ((ThreadPoolExecutor) executorService).getQueue().size());
+
                                 try {
                                     Object requestMessageObject = requestClass.getDeclaredMethod(GrpcConstants.
                                             PARSE_FROM_METHOD_NAME, ByteString.class).invoke(requestClass, value.
@@ -174,13 +193,6 @@ public class GenericServiceServer extends ServiceServer {
                                     logger.error(siddhiAppName + ": " + streamID + ": Dropping request. " +
                                             e.getMessage());
                                     responseObserver.onError(new io.grpc.StatusRuntimeException(Status.DATA_LOSS));
-                                } catch (RejectedExecutionException e) {
-                                    logger.error("RejectedExecutionException exception has occurred, The " +
-                                            "exception was handled as a temporary fix to prevent the thread death of" +
-                                            " the thread with the naming convention, 'grpc-default-executor-x'. The " +
-                                            "actual thread is," + Thread.currentThread().getName() + ". The " +
-                                            "exception will cause an even loss, the dropped event is: " +
-                                            value.toString().replaceAll("\n", " | "), e);
                                 }
                             }
 
